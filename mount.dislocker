@@ -1,0 +1,99 @@
+#!/usr/bin/python
+
+import subprocess, os, sys, argparse, tempfile
+from PyQt4 import QtGui, QtCore
+
+verbose = False
+
+def log(msg):
+    if (verbose and msg.rstrip() != ''):
+        print(msg)
+
+def test(path):
+    p = subprocess.Popen(['dislocker-metadata', "-V%s" % path], stdout=subprocess.PIPE)
+    log(p.communicate()[0])
+    return True if (p.returncode == 0) else False
+
+def mount(passw, path, pathto, args):
+    tmppath = tempfile.mkdtemp(prefix = 'dislocker-tmp')
+    p = subprocess.Popen(['dislocker', '-V%s' % path, '-u%s' % passw, '--', tmppath], stdout=subprocess.PIPE)
+    log(p.communicate()[0])
+    if (p.returncode == 0):
+        p = subprocess.Popen(['mount', '-oloop,rw', os.path.join(tmppath, 'dislocker-file'), pathto], stdout=subprocess.PIPE)
+        log(p.communicate()[0])
+        if (p.returncode == 0):
+            return p.returncode
+        else:
+            print('Error, mounting dislocker-file failed. Rolling back')
+            p = subprocess.Popen(['umount', tmppath], stdout=subprocess.PIPE)
+            log(p.communicate()[0])
+            return p.returncode
+    else:
+        print('Error, dislocker failed (password could be wrong)')
+        return p.returncode
+
+class PassDialog(QtGui.QWidget):
+    def __init__(self, device, mountpoint, options):
+        super(PassDialog, self).__init__()
+        self.device = device
+        self.mountpoint = mountpoint
+        self.options = options
+        self.initUI()
+        
+    def initUI(self):
+        self.setFixedWidth(150)
+        self.setFixedHeight(75)
+        self.label = QtGui.QLabel(self)
+        self.label.setText('Enter the decryption pass:')
+        self.le = QtGui.QLineEdit(self)
+        self.le.move(0, 20)
+        self.le.setFixedWidth(150)
+        self.le.setEchoMode(QtGui.QLineEdit.Password)
+        self.le.returnPressed.connect(self.decrypt)
+        self.btn = QtGui.QPushButton('Go', self)
+        self.btn.move(40,45)
+        self.btn.clicked.connect(self.decrypt)
+        self.setWindowTitle('Decryption password')
+        self.center()
+        
+        self.show()
+    
+    def center(self):
+        frameGm = self.frameGeometry()
+        screen = QtGui.QApplication.desktop().screenNumber(QtGui.QApplication.desktop().cursor().pos())
+        centerPoint = QtGui.QApplication.desktop().screenGeometry(screen).center()
+        frameGm.moveCenter(centerPoint)
+        self.move(frameGm.topLeft())
+    
+    def decrypt(self):
+        self.le.setEnabled(False)
+        self.btn.setEnabled(False)
+        QtCore.QCoreApplication.processEvents()
+        args = sys.argv
+        decrypt(str(self.le.text()), self.device, self.mountpoint, self.options)
+
+def decrypt(passwd, path, pathto, args):
+    sys.exit(mount(passwd, path, pathto, args))
+
+def main():
+    parser = argparse.ArgumentParser(description='Mount a Bitlocker Filesystem.')
+    parser.set_defaults(verbose=False)
+    parser.add_argument('-o', '--options', nargs='+', help='Aditional options to pass to fuse')
+    parser.add_argument('device', help='The device you want to mount')
+    parser.add_argument('mountpoint', help='Where you want to mount your device')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='Enable verbose output')
+    args = parser.parse_args()
+    global verbose
+    verbose = args.verbose
+    if test(args.device):
+        app = QtGui.QApplication(sys.argv)
+        pd = PassDialog(args.device, args.mountpoint, args.options)
+        sys.exit(app.exec_())
+    else:
+        print('Error, filesystem signature not recognised by dislocker')
+        sys.exit(1)
+    
+
+if __name__ == '__main__':
+    main()
+#sudo dislocker -vvv -V /dev/sdb1 -u -- -o allow_other /mnt/dislocker/

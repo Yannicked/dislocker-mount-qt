@@ -1,0 +1,42 @@
+#!/usr/bin/python
+
+import subprocess, os, sys, re, shutil, time, argparse
+
+verbose = False
+
+def find(path):
+    p = subprocess.Popen(['mount'], stdout=subprocess.PIPE)
+    o = p.communicate()[0]
+    l = re.search('(.*) on '+re.escape(path)+' type fuseblk', o).group(1)
+    return l[:-15],path
+
+def log(msg):
+    if (verbose and msg.rstrip() != ''):
+        print(msg)
+
+def unmount(base, loop):
+    p = subprocess.Popen(['umount', loop], stdout=subprocess.PIPE)
+    log(p.communicate()[0])
+    time.sleep(0.1)
+    p = subprocess.Popen(['umount', base], stdout=subprocess.PIPE)
+    log(p.communicate()[0])
+    shutil.rmtree(base)
+def main():
+    parser = argparse.ArgumentParser(description='Unmount a Bitlocker Filesystem.')
+    parser.set_defaults(verbose=False)
+    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('mountpoint', help='What folder to unmount')
+    args = parser.parse_args()
+    global verbose
+    verbose = args.verbose
+    base, loop = find(args.mountpoint)
+    unmount(base, loop)
+    print('umount: %s unmounted' % args.mountpoint)
+
+if __name__ == '__main__':
+    try:
+        main()
+        sys.exit(0)
+    except AttributeError:
+        print("Error, mount not found")
+        sys.exit(1)
